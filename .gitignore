@@ -1,0 +1,6 @@
+config.yaml
+cache/
+data/event_panel.csv
+__pycache__/
+*.pyc
+.venv/

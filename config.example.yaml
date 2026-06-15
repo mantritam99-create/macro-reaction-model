@@ -1,0 +1,22 @@
+# Copy to config.yaml and paste your free FRED key (or set $FRED_API_KEY).
+# Get a key at https://fredaccount.stlouisfed.org/apikeys
+
+fred:
+  api_key: ""                # 32-char FRED key, or leave blank and use $FRED_API_KEY
+  start: "1995-01-01"
+
+cache:
+  fred_max_age_h: 12
+  market_max_age_h: 12
+
+surprise:
+  z_lookback: 24
+  z_min_periods: 6
+
+reaction:
+  horizons: [1, 3]
+  min_events: 8
+
+regime:
+  surprise_index_halflife_d: 90
+  diffusion_window: 12

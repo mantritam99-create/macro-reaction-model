@@ -1,0 +1,43 @@
+name: build-and-deploy
+
+# Daily: pull free consensus from the public calendar feed, rebuild the model,
+# render the static dashboard, and commit it. Pages serves /docs on main.
+on:
+  schedule:
+    - cron: '0 23 * * *'        # 23:00 UTC daily (after US releases + close)
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths-ignore:               # don't loop on the bot's own data/doc commits
+      - 'docs/**'
+      - 'data/consensus_log.csv'
+
+permissions:
+  contents: write               # commit refreshed consensus_log.csv + docs/
+
+concurrency:
+  group: build-and-deploy
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Refresh consensus + render dashboard
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          python -m data.forexfactory || true
+          python -m output.build_static
+      - name: Commit refreshed data + dashboard
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/index.html docs/.nojekyll data/consensus_log.csv
+          git diff --cached --quiet || git commit -m "auto: daily rebuild [skip ci]"
+          git push
