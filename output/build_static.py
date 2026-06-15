@@ -34,6 +34,13 @@ def main():
     with open(out, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"  wrote {out} ({len(html):,} bytes)")
+
+    # the full FRED economic-release calendar -> docs/calendar.html
+    try:
+        from output import calendar_page
+        calendar_page.main()
+    except Exception as e:
+        print(f"  calendar page skipped ({e.__class__.__name__}: {str(e)[:80]})")
     return 0
 
 

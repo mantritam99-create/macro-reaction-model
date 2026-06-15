@@ -160,6 +160,7 @@ def page():
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Macro Reaction Dashboard</title><style>{_CSS}</style></head><body><div class="wrap">
 <h1>Macro Reaction Dashboard</h1><div class="meta">{meta}</div>
+<div class="meta"><a href="calendar.html">Economic release calendar →</a></div>
 
 <h2>Regime read</h2>{_regime_html()}
 
