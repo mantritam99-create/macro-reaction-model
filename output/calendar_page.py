@@ -38,6 +38,7 @@ padding:5px 13px;font-size:12px;cursor:pointer}
 .dlabel .sched{display:inline-block;margin-top:3px;font-size:10px;color:#8a93a2;
 background:#161d26;border:1px solid #222b36;border-radius:10px;padding:0 7px}
 .day.today .dlabel .dow{color:#e9b949}
+.day.past{opacity:.5}
 .rels{flex:1;min-width:0}
 .rel{display:flex;align-items:baseline;gap:8px;padding:3px 0}
 .rel.hidden{display:none}
@@ -53,34 +54,24 @@ background:#161d26;border:1px solid #222b36;border-radius:10px;padding:0 7px}
 .empty{color:#8a93a2;padding:20px 0}
 """
 
-_RANK = {"tracked": 0, "major": 1, "other": 2}
-
-
-def _day_label(d: dt.date, today: dt.date) -> tuple[str, str]:
-    delta = (d - today).days
-    if delta == 0:   dow = "Today"
-    elif delta == 1: dow = "Tomorrow"
-    else:            dow = d.strftime("%a")
-    return dow, d.strftime("%b %-d") if os.name != "nt" else d.strftime("%b ") + str(d.day)
-
-
 def render(rows: list[dict]) -> str:
-    today = dt.date.today()
     n_t = sum(r["impact"] == "tracked" for r in rows)
     n_m = sum(r["impact"] == "major" for r in rows)
     n_k = sum(r.get("key") for r in rows)
     n_o = len(rows) - n_t - n_m
     gen = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
-    # group by date (rows already sorted by date, then impact, then name)
+    # group by date (rows already sorted by date, then impact, then name).
+    # NOTE: "Today" / "Tomorrow" / "scheduled" / past-dimming are decided in the
+    # BROWSER (see markDates() below), not here — otherwise a static page built at
+    # 23:00 UTC would show a stale "Today" all of the next day. Server emits the
+    # absolute weekday + an empty .reltag slot; the client fills relatives in ET.
     from itertools import groupby
     days_html = []
     for date_str, grp in groupby(rows, key=lambda r: r["date"]):
         d = dt.date.fromisoformat(date_str)
-        dow, dnum = _day_label(d, today)
-        future = date_str > today.isoformat()
-        sched = "<div class='sched'>scheduled</div>" if future else ""
-        is_today = "today" if d == today else ""
+        dow = d.strftime("%a")
+        dnum = d.strftime("%b ") + str(d.day)
         rel_html = []
         for r in grp:
             imp = r["impact"]
@@ -95,17 +86,23 @@ def render(rows: list[dict]) -> str:
                 f"<span class='nm'>{html.escape(r['name'])}</span>"
                 f"{tag}{time}{src}</div>")
         days_html.append(
-            f"<div class='day {is_today}'>"
+            f"<div class='day' data-date='{date_str}'>"
             f"<div class='dlabel'><div class='dow'>{dow}</div>"
-            f"<div class='dnum'>{dnum}</div>{sched}</div>"
+            f"<div class='dnum'>{dnum}</div><div class='reltag'></div></div>"
             f"<div class='rels'>{''.join(rel_html)}</div></div>")
 
     body = "".join(days_html) if days_html else (
         "<div class='empty'>No scheduled releases returned — check the FRED key "
         "(<code>FRED_API_KEY</code>) or connectivity.</div>")
 
-    window = (f"{today.strftime('%b %d')} – "
-              f"{(today + dt.timedelta(days=45)).strftime('%b %d, %Y')}")
+    # window describes the actual data span (not build-day) so it can't go stale
+    dates = [r["date"] for r in rows]
+    if dates:
+        first = dt.date.fromisoformat(min(dates))
+        last = dt.date.fromisoformat(max(dates))
+        window = f"{first.strftime('%b %d')} – {last.strftime('%b %d, %Y')}"
+    else:
+        window = "—"
 
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -141,6 +138,29 @@ links to the official agency for those and to the FRED release page otherwise.
 
 <script>
 (function(){{
+  // Decide Today / Tomorrow / scheduled / past in the viewer's browser, in US
+  // Eastern (the release schedule's timezone), so a statically-built page never
+  // shows a stale "Today". en-CA gives an ISO YYYY-MM-DD date string.
+  function markDates(){{
+    var today = new Date().toLocaleDateString('en-CA', {{timeZone:'America/New_York'}});
+    var a = today.split('-').map(Number);
+    var u = new Date(Date.UTC(a[0], a[1]-1, a[2]));
+    u.setUTCDate(u.getUTCDate()+1);
+    var tomorrow = u.toISOString().slice(0,10);
+    document.querySelectorAll('.day').forEach(function(d){{
+      var date = d.getAttribute('data-date');
+      var dow = d.querySelector('.dow');
+      var tag = d.querySelector('.reltag');
+      d.classList.remove('today','past');
+      if(tag) tag.innerHTML = '';
+      if(date===today){{ if(dow) dow.textContent='Today'; d.classList.add('today'); }}
+      else if(date===tomorrow){{ if(dow) dow.textContent='Tomorrow'; }}
+      if(date>today){{ if(tag) tag.innerHTML='<span class="sched">scheduled</span>'; }}
+      else if(date<today){{ d.classList.add('past'); }}
+    }});
+  }}
+  markDates();
+
   var btns = document.querySelectorAll('.filters button');
   function apply(view){{
     document.querySelectorAll('.rel').forEach(function(r){{
