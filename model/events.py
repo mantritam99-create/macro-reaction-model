@@ -77,7 +77,7 @@ def _zscore(surprise_raw: pd.Series) -> pd.Series:
 def event_surprises(etype, fid, how, pmethod) -> pd.DataFrame | None:
     """Per-period surprise frame for one event, indexed by reference period:
        actual (first-print, transformed), consensus, surprise_raw, surprise_z,
-       released (publication date), provider ('csv'|'proxy')."""
+       released (publication date), provider ('csv'|'feed'|'proxy')."""
     rel = fetch_fred.releases(fid)
     if rel is None or rel.empty:
         return None
@@ -153,7 +153,8 @@ def latest_status() -> list[dict]:
             continue
         last = es.dropna(subset=["actual"]).iloc[-1]
         period = es.dropna(subset=["actual"]).index[-1]
-        logged = last["provider"] == "csv"
+        provider = last["provider"]
+        logged = provider in ("csv", "feed")
         out.append({
             "event_type": etype, "label": label, "unit": unit, "url": url,
             "region": region, "tier": tier,
@@ -163,7 +164,7 @@ def latest_status() -> list[dict]:
             "released": last["released"].strftime("%Y-%m-%d") if pd.notna(last["released"]) else "-",
             "consensus": round(float(last["consensus"]), 3) if logged else None,
             "surprise_z": round(float(last["surprise_z"]), 2) if pd.notna(last["surprise_z"]) else None,
-            "logged": logged,
+            "logged": logged, "provider": provider,
         })
     out.sort(key=lambda d: d.get("released", ""), reverse=True)
     return out

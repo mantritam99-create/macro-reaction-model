@@ -14,7 +14,8 @@ try:
 except Exception:
     pass
 from config import ROOT
-from data import fred_calendar
+from data import consensus, fred_calendar
+from output import provenance
 
 _CSS = """
 *{box-sizing:border-box} body{font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;
@@ -52,9 +53,10 @@ background:#161d26;border:1px solid #222b36;border-radius:10px;padding:0 7px}
 .t{font-size:11px;color:#8a93a2;white-space:nowrap} .src{font-size:11px}
 .note{color:#6b7785;font-size:11px;margin-top:18px;line-height:1.6}
 .empty{color:#8a93a2;padding:20px 0}
-"""
+""" + provenance.CSS
 
-def render(rows: list[dict]) -> str:
+def render(rows: list[dict], coverage=None, feed_status=None, provider_by_event=None) -> str:
+    provider_by_event = provider_by_event or {}
     n_t = sum(r["impact"] == "tracked" for r in rows)
     n_m = sum(r["impact"] == "major" for r in rows)
     n_k = sum(r.get("key") for r in rows)
@@ -77,6 +79,10 @@ def render(rows: list[dict]) -> str:
             imp = r["impact"]
             time = f"<span class='t'>{html.escape(r['time'])}</span>" if r.get("time") else ""
             tag = "<span class='tag modeled'>modeled</span>" if imp == "tracked" else ""
+            if imp == "tracked" and provider_by_event:
+                providers = dict.fromkeys(provider_by_event.get(et, "proxy")
+                                          for et in r.get("event_types", ()))
+                tag += "".join(provenance.badge(p) for p in providers)
             src = (f"<a class='src' href='{html.escape(r['source'])}' target='_blank' "
                    f"rel='noopener'>source ↗</a>")
             keycls = " key" if r.get("key") else ""
@@ -110,6 +116,7 @@ def render(rows: list[dict]) -> str:
 <h1>Economic Release Calendar</h1>
 <div class="meta">{window} · {n_m + n_t} US economic indicators ({n_k} top-tier, {n_t} modeled) · {n_o} other · source: FRED <code>releases/dates</code> · built {gen}</div>
 <div class="nav"><a href="index.html">← Macro Reaction Dashboard</a></div>
+{provenance.summary(coverage or consensus.coverage(), feed_status)}
 
 <div class="filters">
   <button data-view="major" class="on">Economic indicators</button>
@@ -133,6 +140,8 @@ carries no scheduled meeting dates for it) are filtered out. For FOMC decision d
 see <a href="https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm" target="_blank" rel="noopener">federalreserve.gov ↗</a>.
 "Tracked" releases are the ones this repo's reaction model is fit on; "source ↗"
 links to the official agency for those and to the FRED release page otherwise.
+Provider badges beside tracked releases describe the latest modeled observation;
+future street consensus is not known until a feed or manual value arrives.
 </p>
 </div>
 
@@ -182,9 +191,10 @@ links to the official agency for those and to the FRED release page otherwise.
 </body></html>"""
 
 
-def main():
+def main(coverage=None, feed_status=None, provider_by_event=None):
     rows = fred_calendar.upcoming()
-    htmlstr = render(rows)
+    htmlstr = render(rows, coverage=coverage, feed_status=feed_status,
+                     provider_by_event=provider_by_event)
     docs = os.path.join(ROOT, "docs")
     os.makedirs(docs, exist_ok=True)
     out = os.path.join(docs, "calendar.html")

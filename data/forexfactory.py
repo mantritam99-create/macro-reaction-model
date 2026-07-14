@@ -14,7 +14,7 @@ Honest limits:
   * Going-forward only (last/this/next week) -- not a deep history backfill. Real
     consensus therefore accumulates over time; older prints stay on the proxy.
   * Unofficial 3rd-party feed -- stable and widely used, but could change. If it
-    breaks, the pipeline silently degrades to the proxy (never crashes).
+    breaks, the static pages show a degraded status and use the archived log.
 
 Period bridge: FF gives a release DATE, the model keys consensus by reference
 PERIOD. We resolve period by matching the FF event to the FRED first-print whose
@@ -83,12 +83,13 @@ def _fetch(feed):
 def _collect_forecasts():
     """Pull all feeds -> list of (event_type, ff_date, forecast_value)."""
     titles = {(t.lower(), c): (et, sc) for et, (_, t, c, sc) in FF_MAP.items()}
-    seen, out = set(), []
+    seen, out, failures = set(), [], []
     for feed in _FEEDS:
         try:
             events = _fetch(feed)
         except Exception as e:
             print(f"  [ff] {feed} fetch failed: {e.__class__.__name__}")
+            failures.append(feed)
             continue
         for ev in events:
             key = (str(ev.get("title", "")).lower(), ev.get("country", ""))
@@ -104,6 +105,8 @@ def _collect_forecasts():
                 continue
             seen.add(dedup)
             out.append((et, ff_date, val * scale))
+    if len(failures) == len(_FEEDS):
+        raise RuntimeError("all ForexFactory feeds failed")
     return out
 
 
@@ -127,7 +130,7 @@ def update(max_gap_days: int = 5) -> pd.DataFrame:
             continue  # forecast for a print FRED hasn't published yet -> next run
         period = rel.index[i]
         rows.append({"event_type": et, "period": period.strftime("%Y-%m-%d"),
-                     "consensus": round(float(val), 4)})
+                     "consensus": round(float(val), 4), "provider": "feed"})
 
     new = pd.DataFrame(rows)
     if new.empty:
@@ -135,6 +138,8 @@ def update(max_gap_days: int = 5) -> pd.DataFrame:
         return new
     if os.path.exists(_CSV):
         old = pd.read_csv(_CSV, dtype={"period": str})
+        if "provider" not in old:
+            old["provider"] = "csv"
         merged = pd.concat([old, new], ignore_index=True)
         merged = merged.drop_duplicates(["event_type", "period"], keep="last")
     else:

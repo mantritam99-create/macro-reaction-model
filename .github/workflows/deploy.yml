@@ -32,8 +32,9 @@ jobs:
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: |
-          python -m data.forexfactory || true
           python -m output.build_static
+      - name: Verify provider provenance on both static pages
+        run: python -m unittest discover -s tests -v
       - name: Commit refreshed data + dashboard
         run: |
           git config user.name  "github-actions[bot]"

@@ -19,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pandas as pd
 from model import events, reaction, inference
 from data import consensus as cons
+from output import provenance
 
 HOST, PORT = "127.0.0.1", 8765
 STATE: dict = {}
@@ -32,6 +33,8 @@ def rebuild():
     STATE["si"] = reaction.surprise_index(panel) if len(panel) else {}
     STATE["diff"] = reaction.diffusion(panel) if len(panel) else {}
     STATE["status"] = events.latest_status()
+    STATE["coverage"] = cons.coverage(panel)
+    STATE.setdefault("feed_status", {"state": "unknown", "detail": "feed not checked"})
 
 
 # ---------------------------------------------------------------- render -----
@@ -63,16 +66,17 @@ def _reports_html():
             cards.append(f"<div class='card muted'>{s['label']} — no FRED data</div>")
             continue
         logged = s.get("logged")
-        chip = ("<span class='chip ok'>consensus logged</span>" if logged
-                else "<span class='chip warn'>needs consensus</span>")
+        provider = s.get("provider", "proxy")
+        chip = provenance.badge(provider)
         src = f"<a href='{s['url']}' target='_blank' rel='noopener'>official source ↗</a>"
         sz = s.get("surprise_z")
         sz_txt = f" · surprise <b>{sz:+.2f}σ</b>" if sz is not None else ""
         prefill = (f"value='{s['consensus']}'"
                    if logged and s.get("consensus") is not None else "")
         if STATIC:
-            form = ("<div class='note'>consensus auto-filled daily from the public "
-                    "calendar feed; surprise updates once the print is released</div>")
+            form = (f"<div class='note'>Latest consensus source: "
+                    f"{provenance.LABELS.get(provider, provider)}. Proxy values are "
+                    "model expectations, not street consensus.</div>")
         else:
             form = (
                 "<form method='post' action='/submit' class='inp'>"
@@ -108,10 +112,16 @@ def _matrix_html():
     m = STATE["matrix"]
     if m.empty:
         return "<p class='muted'>no fitted cells yet</p>"
+    def source_mix(r):
+        return "".join(provenance.badge(p, int(getattr(r, f"{p}_n", 0)))
+                       for p in ("csv", "feed", "proxy")
+                       if getattr(r, f"{p}_n", 0))
+
     body = "".join(
         f"<tr><td>{r.event_type}</td><td>{r.market}</td><td>T+{int(r.horizon)}</td>"
         f"<td class='{'pos' if r.beta_pct >= 0 else 'neg'}'>{r.beta_pct:+.2f}</td>"
-        f"<td>{r.r2:.2f}</td><td>{r.hit:.0%}</td><td>{int(r.n)}</td><td>{r.provider}</td></tr>"
+        f"<td>{r.r2:.2f}</td><td>{r.hit:.0%}</td><td>{int(r.n)}</td>"
+        f"<td>{source_mix(r)}</td></tr>"
         for r in m.head(25).itertuples())
     return ("<table class='mtx'><tr><th>event</th><th>market</th><th>win</th>"
             "<th>β %/1σ</th><th>R²</th><th>hit</th><th>n</th><th>src</th></tr>"
@@ -146,7 +156,7 @@ th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
 .proj{background:#10171f;border-radius:6px}
 .pos{color:#5fd38a} .neg{color:#f08a8a} .muted{color:#6b7785}
 .note{color:#6b7785;font-size:11px;margin-top:8px}
-"""
+""" + provenance.CSS
 
 
 def page():
@@ -161,6 +171,7 @@ def page():
 <title>Macro Reaction Dashboard</title><style>{_CSS}</style></head><body><div class="wrap">
 <h1>Macro Reaction Dashboard</h1><div class="meta">{meta}</div>
 <div class="meta"><a href="calendar.html">Economic release calendar →</a></div>
+{provenance.summary(STATE.get("coverage", {}), STATE.get("feed_status"))}
 
 <h2>Regime read</h2>{_regime_html()}
 
@@ -174,8 +185,8 @@ which way the next print lands.</p>
 <h2>Reaction matrix — the trained model (top cells by R²)</h2>
 {_matrix_html()}
 <p class="note">High R² = a reliable reaction function; near-zero R² = that event is
-noise for that market (shown, not hidden). Betas sharpen from "proxy" toward "csv"
-as you log real consensus.</p>
+noise for that market (shown, not hidden). Source badges show the observations behind
+each coefficient; proxy-derived observations are never street-consensus evidence.</p>
 </div></body></html>"""
 
 

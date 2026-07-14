@@ -17,7 +17,7 @@ in one reaction cell. The provider used is carried on every event row so the
 report can flag it.
 """
 import os
-import numpy as np
+from collections import Counter
 import pandas as pd
 from config import DATA_DIR
 
@@ -48,19 +48,30 @@ def proxy(metric: pd.Series, method: str = "rw_drift", k: int = 6) -> pd.Series:
 _CSV = os.path.join(DATA_DIR, "consensus_log.csv")
 
 
-def csv_consensus(event_type: str) -> pd.Series | None:
-    """Street consensus you logged by hand. CSV columns: event_type, period,
-    consensus. Returns a period-indexed Series for one event_type, or None if the
-    file/rows are absent (caller then falls back to proxy)."""
+def _logged_rows() -> pd.DataFrame:
     if not os.path.exists(_CSV):
-        return None
-    df = pd.read_csv(_CSV)
+        return pd.DataFrame(columns=["event_type", "period", "consensus", "provider"])
+    df = pd.read_csv(_CSV, dtype={"period": str})
+    if "provider" not in df:
+        df["provider"] = "csv"
+    df["provider"] = df["provider"].where(df["provider"].isin(("csv", "feed")), "csv")
+    return df
+
+
+def csv_consensus(event_type: str):
+    """Logged street consensus. CSV columns: event_type, period, consensus,
+    provider. Returns value and provider Series for one event type, or None if
+    rows are absent (caller then falls back to proxy)."""
+    df = _logged_rows()
     df = df[df["event_type"] == event_type]
     if df.empty:
         return None
     s = pd.Series(df["consensus"].values,
                   index=pd.to_datetime(df["period"])).sort_index()
-    return pd.to_numeric(s, errors="coerce").dropna()
+    s = pd.to_numeric(s, errors="coerce").dropna()
+    providers = pd.Series(df["provider"].values,
+                          index=pd.to_datetime(df["period"])).reindex(s.index)
+    return s, providers
 
 
 # ------------------------------------------------------------------ FEED -----
@@ -88,16 +99,22 @@ def consensus_for(event_type: str, metric: pd.Series, spec: dict):
     """
     proxy_s = proxy(metric, spec.get("proxy_method", "rw_drift"))
     want = spec.get("consensus", "proxy")
-    override = csv_consensus(event_type) if want == "csv" else \
-        (fetch_feed(event_type) if want == "feed" else None)
+    logged = csv_consensus(event_type) if want == "csv" else None
+    if logged is not None:
+        override, override_provider = logged
+    elif want == "feed":
+        override = fetch_feed(event_type)
+        override_provider = (pd.Series("feed", index=override.index)
+                             if override is not None else None)
+    else:
+        override = override_provider = None
 
     if override is None:
         return proxy_s, pd.Series("proxy", index=metric.index)
 
     override = override.reindex(metric.index)
     blended = override.combine_first(proxy_s)
-    provider = pd.Series(np.where(override.notna(), want, "proxy"),
-                         index=metric.index)
+    provider = override_provider.reindex(metric.index).where(override.notna(), "proxy")
     return blended, provider
 
 
@@ -105,11 +122,32 @@ def log_consensus(event_type: str, period, consensus: float) -> None:
     """Upsert one street-consensus number into consensus_log.csv (the manual log).
     period is the release's reference period (e.g. the CPI month)."""
     period = pd.to_datetime(period).strftime("%Y-%m-%d")
-    row = {"event_type": event_type, "period": period, "consensus": float(consensus)}
-    if os.path.exists(_CSV):
-        df = pd.read_csv(_CSV, dtype={"period": str})
-        mask = (df["event_type"] == event_type) & (df["period"] == period)
-        df = pd.concat([df[~mask], pd.DataFrame([row])], ignore_index=True)
-    else:
-        df = pd.DataFrame([row])
+    row = {"event_type": event_type, "period": period,
+           "consensus": float(consensus), "provider": "csv"}
+    df = _logged_rows()
+    mask = (df["event_type"] == event_type) & (df["period"] == period)
+    df = pd.concat([df[~mask], pd.DataFrame([row])], ignore_index=True)
     df.sort_values(["event_type", "period"]).to_csv(_CSV, index=False)
+
+
+def coverage(panel: pd.DataFrame | None = None) -> dict:
+    """Provider counts over unique modeled releases plus newer logged releases."""
+    if panel is None:
+        path = os.path.join(DATA_DIR, "event_panel.csv")
+        panel = pd.read_csv(path) if os.path.exists(path) else pd.DataFrame()
+    cols = ["event_type", "period", "provider"]
+    modeled = panel[cols].copy() if all(c in panel for c in cols) else pd.DataFrame(columns=cols)
+    logged = _logged_rows()[cols].copy()
+    for frame in (modeled, logged):
+        if not frame.empty:
+            frame["period"] = pd.to_datetime(frame["period"]).dt.strftime("%Y-%m-%d")
+    releases = (pd.concat([modeled, logged], ignore_index=True)
+                  .drop_duplicates(["event_type", "period"], keep="last"))
+    counts = Counter(releases["provider"])
+    return {
+        "total": len(releases),
+        "actual": counts["csv"] + counts["feed"],
+        "csv": counts["csv"],
+        "feed": counts["feed"],
+        "proxy": counts["proxy"],
+    }

@@ -26,15 +26,15 @@ from config import fred_key, has_fred
 _HDR = {"User-Agent": "Mozilla/5.0"}
 _BASE = "https://api.stlouisfed.org/fred/releases/dates"
 
-# release_id -> the modeled event(s) it carries, official source, conventional ET time.
+# release_id -> label, official source, conventional ET time, modeled event types.
 # Keyed by release_id (NOT event) because one release can carry several prints:
 # release 10 = headline + core CPI; release 50 = payrolls + unemployment rate.
 TRACKED = {
-    10:  ("Consumer Price Index (CPI, headline + core)",   "https://www.bls.gov/cpi/",                                              "8:30 AM ET"),
-    50:  ("Employment Situation (Nonfarm Payrolls + U-rate)", "https://www.bls.gov/news.release/empsit.toc.htm",                    "8:30 AM ET"),
-    54:  ("Personal Income & Outlays (Core PCE price index)", "https://www.bea.gov/data/personal-consumption-expenditures-price-index", "8:30 AM ET"),
-    9:   ("Advance Retail Sales",                           "https://www.census.gov/retail/sales.html",                             "8:30 AM ET"),
-    180: ("Unemployment Insurance Weekly Claims",           "https://www.dol.gov/ui/data.pdf",                                       "8:30 AM ET"),
+    10:  ("Consumer Price Index (CPI, headline + core)",   "https://www.bls.gov/cpi/",                                              "8:30 AM ET", ("US_CPI", "US_CORE_CPI")),
+    50:  ("Employment Situation (Nonfarm Payrolls + U-rate)", "https://www.bls.gov/news.release/empsit.toc.htm",                    "8:30 AM ET", ("US_NFP", "US_UNRATE")),
+    54:  ("Personal Income & Outlays (Core PCE price index)", "https://www.bea.gov/data/personal-consumption-expenditures-price-index", "8:30 AM ET", ("US_PCE_CORE",)),
+    9:   ("Advance Retail Sales",                           "https://www.census.gov/retail/sales.html",                             "8:30 AM ET", ("US_RETAIL",)),
+    180: ("Unemployment Insurance Weekly Claims",           "https://www.dol.gov/ui/data.pdf",                                       "8:30 AM ET", ("US_CLAIMS",)),
 }
 
 # The heaviest market movers — bolded in the agenda for visual hierarchy.
@@ -184,8 +184,8 @@ def upcoming(days_back: int = 2, days_ahead: int = 45) -> list[dict]:
             "key": rid in KEY,
         }
         if impact == "tracked":
-            label, url, time = TRACKED[rid]
-            rec.update(name=label, source=url, time=time)
+            label, url, time, event_types = TRACKED[rid]
+            rec.update(name=label, source=url, time=time, event_types=event_types)
         out.append(rec)
     # date, then impact priority (tracked first, key major before plain), then name
     rank = {"tracked": 0, "major": 1, "other": 2}

@@ -55,11 +55,16 @@ def reaction_matrix(panel: pd.DataFrame) -> pd.DataFrame:
             continue
         prov = g["provider"]
         provider = ("csv" if (prov == "csv").all()
+                    else "feed" if (prov == "feed").all()
                     else "proxy" if (prov == "proxy").all() else "mixed")
+        counts = prov.value_counts()
         rows.append({"event_type": etype, "market": mkt, "horizon": h,
                      "beta_pct": fit["beta"] * 100,   # % move per +1 sigma surprise
                      "r2": fit["r2"], "hit": fit["hit"], "n": fit["n"],
-                     "provider": provider})
+                     "provider": provider,
+                     "csv_n": int(counts.get("csv", 0)),
+                     "feed_n": int(counts.get("feed", 0)),
+                     "proxy_n": int(counts.get("proxy", 0))})
     out = pd.DataFrame(rows)
     return out.sort_values(["r2", "horizon"], ascending=[False, True]) if len(out) else out
 

@@ -65,8 +65,11 @@ free consensus feed → rebuild model → render docs/index.html → commit → 
   major event, parses units, and bridges each forecast to its FRED first-print by
   release date — appending to `consensus_log.csv`. The feed is current-week and
   rate-limits, so it's hit **once daily**; real-consensus betas accumulate going
-  forward while older history stays on the proxy. If the feed ever breaks, the
-  pipeline degrades to the proxy (never crashes).
+  forward while older history stays on the proxy. If the feed breaks, both live
+  pages show a degraded status and distinguish archived actual inputs from proxy.
+- **Visible provenance:** Both static pages show unique-release coverage and badges
+  for `actual CSV`, `feed`, and `proxy`. Proxy inputs are model expectations, never
+  presented as street-consensus observations.
 - **Static render:** `output/build_static.py` writes the read-only dashboard to
   `docs/`, served by GitHub Pages (no backend — the live site shows regime, the
   reaction matrix, and "just published" alerts with source links).
@@ -88,7 +91,7 @@ Yahoo close prices                 ┘   (surprise_z)   surprise index (regime)
 |---|---|
 | `data/fetch_fred.py` | FRED API; `releases()` returns **initial-release** values + their publication date (no revision lookahead) |
 | `data/fetch_market.py` | Yahoo daily closes, keyless |
-| `data/consensus.py` | the consensus layer — **proxy** (default, free), **csv** (manual log), **feed** (stub for a calendar API) |
+| `data/consensus.py` | consensus layer and unique-release provider coverage — **proxy**, **actual CSV**, or **feed** |
 | `model/events.py` | event catalog + builds the panel (surprise z-score + market windows) |
 | `model/reaction.py` | reaction matrix, surprise index, diffusion nowcast |
 | `output/report.py` | console report |

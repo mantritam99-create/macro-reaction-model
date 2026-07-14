@@ -16,15 +16,23 @@ from data import forexfactory
 
 
 def main():
+    feed_status = {"state": "current", "detail": "ForexFactory feed checked."}
     try:
         n = forexfactory.update()
         got = 0 if n is None or n.empty else len(n)
         print(f"  consensus feed: {got} row(s) refreshed")
+        feed_status["detail"] = f"ForexFactory feed checked; {got} row(s) refreshed."
     except Exception as e:
-        print(f"  consensus feed skipped ({e.__class__.__name__}) — using existing log")
+        feed_status = {
+            "state": "degraded",
+            "detail": (f"ForexFactory refresh failed ({e.__class__.__name__}); "
+                       "using archived actual-consensus records and proxy elsewhere."),
+        }
+        print(f"  consensus feed degraded ({e.__class__.__name__}) — using existing log")
 
     serve.STATIC = True
     serve.rebuild()
+    serve.STATE["feed_status"] = feed_status
     html = serve.page()
 
     docs = os.path.join(ROOT, "docs")
@@ -38,7 +46,10 @@ def main():
     # the full FRED economic-release calendar -> docs/calendar.html
     try:
         from output import calendar_page
-        calendar_page.main()
+        providers = {s["event_type"]: s.get("provider", "proxy")
+                     for s in serve.STATE["status"] if "event_type" in s}
+        calendar_page.main(coverage=serve.STATE["coverage"], feed_status=feed_status,
+                           provider_by_event=providers)
     except Exception as e:
         print(f"  calendar page skipped ({e.__class__.__name__}: {str(e)[:80]})")
     return 0
